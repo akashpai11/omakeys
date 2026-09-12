@@ -12,9 +12,10 @@ Two writes happen:
    (~/.config/omarchy/omakeys/profiles/) — no privilege needed,
    this is just app state for the panel to reload next time it opens.
 2. The generated keyd config, which must land in /etc/keyd/ (root-owned).
-   That happens through a single `pkexec` call that writes the file and
-   triggers `keyd reload` together, so applying a remap costs one
-   authentication prompt rather than one per step.
+   That happens through a single `pkexec` call into priv_helper.py, which
+   writes the file and triggers `keyd reload` together (one authentication
+   prompt rather than one per step) using only absolute-path binaries and
+   O_NOFOLLOW opens on both ends — see priv_helper.py's docstring for why.
 
 Prints a single JSON line: {"ok": true} or {"ok": false, "error": "..."}.
 """
@@ -24,6 +25,10 @@ import os
 import re
 import subprocess
 import sys
+
+PKEXEC = "/usr/bin/pkexec"
+PYTHON3 = "/usr/bin/python3"
+PRIV_HELPER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "priv_helper.py")
 
 CONFIG_HOME = os.path.expanduser("~/.config/omarchy/omakeys")
 PROFILES_DIR = os.path.join(CONFIG_HOME, "profiles")
@@ -94,15 +99,7 @@ def main():
         f.write(build_keyd_config(device_key, profile))
 
     result = subprocess.run(
-        [
-            "pkexec",
-            "bash",
-            "-c",
-            'install -Dm644 "$1" "/etc/keyd/$2.conf" && keyd reload',
-            "--",
-            staging_path,
-            safe_name,
-        ],
+        [PKEXEC, PYTHON3, PRIV_HELPER_PATH, "apply-keyd", safe_name, staging_path],
         capture_output=True,
         text=True,
         timeout=120,
@@ -112,7 +109,11 @@ def main():
         detail = (result.stderr or result.stdout or "").strip()
         fail(detail or f"pkexec exited {result.returncode}")
 
-    print(json.dumps({"ok": True}))
+    # priv_helper.py already prints {"ok": ...} in the exact shape this
+    # script's own callers expect — forward it rather than re-wrap it.
+    if not result.stdout.strip():
+        fail("priv_helper produced no output")
+    sys.stdout.write(result.stdout)
 
 
 if __name__ == "__main__":

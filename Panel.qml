@@ -32,13 +32,14 @@ Panel {
   property int heatmapRangeDays: 1
 
   function refreshHeatmap() {
-    heatmapProc.command = ["python3", heatmapQueryHelperPath, String(heatmapRangeDays)]
+    heatmapProc.command = ["/usr/bin/python3", heatmapQueryHelperPath, String(heatmapRangeDays)]
     heatmapProc.running = true
   }
 
   Process {
     id: heatmapProc
     stdout: StdioCollector { id: heatmapOut; waitForEnd: true }
+    onRunningChanged: if (running) heatmapWatchdog.restart(); else heatmapWatchdog.stop()
     onExited: function(exitCode) {
       try {
         var res = JSON.parse(heatmapOut.text)
@@ -46,6 +47,7 @@ Panel {
       } catch (exception) { /* keep last-good data on a bad read */ }
     }
   }
+  Timer { id: heatmapWatchdog; interval: 10000; onTriggered: if (heatmapProc.running) heatmapProc.running = false }
 
   onTabChanged: if (tab === "heatmap") refreshHeatmap()
   onHeatmapRangeDaysChanged: if (tab === "heatmap") refreshHeatmap()
@@ -84,7 +86,7 @@ Panel {
     next[device.phys] = { status: "checking" }
     viaCache = next
     viaProc.targetPhys = device.phys
-    viaProc.command = ["python3", viaHelperPath, device.hidraw]
+    viaProc.command = ["/usr/bin/python3", viaHelperPath, device.hidraw]
     viaProc.running = true
   }
 
@@ -92,6 +94,7 @@ Panel {
     id: viaProc
     property string targetPhys: ""
     stdout: StdioCollector { id: viaOut; waitForEnd: true }
+    onRunningChanged: if (running) viaWatchdog.restart(); else viaWatchdog.stop()
     onExited: function(exitCode) {
       var result
       try {
@@ -107,6 +110,9 @@ Panel {
       root.viaCache = next
     }
   }
+  // probe_via.py bounds its own read loop to ~1.5s worst case; this is
+  // generous headroom on top of that for process startup, not the normal path.
+  Timer { id: viaWatchdog; interval: 10000; onTriggered: if (viaProc.running) viaProc.running = false }
 
   // True when this account is missing the one-time access the plugin needs:
   // the keyd/input groups (heatmap) and the VIA udev rule (raw-HID probe).
@@ -124,7 +130,7 @@ Panel {
     if (settingUp) return
     settingUp = true
     setupStatus = ""
-    setupProc.command = ["python3", setupHelperPath]
+    setupProc.command = ["/usr/bin/python3", setupHelperPath]
     setupProc.running = true
   }
 
@@ -132,6 +138,7 @@ Panel {
     id: setupProc
     stdout: StdioCollector { id: setupOut; waitForEnd: true }
     stderr: StdioCollector { id: setupErr; waitForEnd: true }
+    onRunningChanged: if (running) setupWatchdog.restart(); else setupWatchdog.stop()
     onExited: function(exitCode) {
       root.settingUp = false
       try {
@@ -147,6 +154,10 @@ Panel {
       if (root.selectedDevice) root.probeVia(root.selectedDevice, true)
     }
   }
+  // Bounds the outer process, not just the pkexec call inside it (that one
+  // already caps itself at 60s) — headroom for interpreter/process startup
+  // plus the time a user takes to answer the polkit prompt.
+  Timer { id: setupWatchdog; interval: 70000; onTriggered: if (setupProc.running) setupProc.running = false }
 
   onOpenedChanged: if (opened) {
     if (service) service.refresh()
@@ -167,7 +178,7 @@ Panel {
     if (!deviceKey || applying) return
     applying = true
     applyStatus = ""
-    applyProc.command = ["python3", applyHelperPath, deviceKey, Qt.btoa(JSON.stringify(profile))]
+    applyProc.command = ["/usr/bin/python3", applyHelperPath, deviceKey, Qt.btoa(JSON.stringify(profile))]
     applyProc.running = true
   }
 
@@ -175,6 +186,7 @@ Panel {
     id: applyProc
     stdout: StdioCollector { id: applyOut; waitForEnd: true }
     stderr: StdioCollector { id: applyErr; waitForEnd: true }
+    onRunningChanged: if (running) applyWatchdog.restart(); else applyWatchdog.stop()
     onExited: function(exitCode) {
       root.applying = false
       try {
@@ -185,6 +197,9 @@ Panel {
       }
     }
   }
+  // Same reasoning as setupWatchdog above: apply_profile.py's own pkexec
+  // call caps at 120s, so this outer bound gives it room to actually finish.
+  Timer { id: applyWatchdog; interval: 130000; onTriggered: if (applyProc.running) applyProc.running = false }
 
   FileView {
     id: profileFile

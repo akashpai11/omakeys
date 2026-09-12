@@ -40,9 +40,10 @@ Item {
 
   Process {
     id: collector
-    command: ["python3", root.helperPath]
+    command: ["/usr/bin/python3", root.helperPath]
     stdout: StdioCollector { id: output; waitForEnd: true }
     stderr: StdioCollector { id: errors; waitForEnd: true }
+    onRunningChanged: if (running) collectorWatchdog.restart(); else collectorWatchdog.stop()
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         root.error = errors.text.trim() || "Keyboard detection failed."
@@ -59,6 +60,11 @@ Item {
       }
     }
   }
+  // detect_devices.py bounds its own subprocess calls internally (3s), but
+  // a watchdog on the outer process is cheap insurance against it hanging
+  // before ever reaching one — an unbounded StdioCollector read otherwise
+  // has no ceiling of its own.
+  Timer { id: collectorWatchdog; interval: 10000; onTriggered: if (collector.running) collector.running = false }
 
   // Hotplugging a keyboard doesn't change any *file* the shell watches, so
   // poll on an interval rather than relying on inotify. 4s keeps a freshly
@@ -71,7 +77,7 @@ Item {
   // device are handled internally without exiting).
   Process {
     id: heatmapDaemon
-    command: ["python3", root.heatmapDaemonPath]
+    command: ["/usr/bin/python3", root.heatmapDaemonPath]
     stderr: SplitParser {
       onRead: function(line) {
         if (line.indexOf("watching ") === 0 || line.indexOf("] watching ") !== -1) root.heatmapWatchingAnyDevice = true

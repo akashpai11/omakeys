@@ -8,27 +8,26 @@ current user doesn't have by default:
   - a udev rule tagging hidraw nodes `uaccess` so the logged-in seat user
     can open them without root (the same rule VIA/Vial ship themselves)
 
-Both changes happen through a single `pkexec` call so this costs one
-authentication prompt, not one per step. Group membership only takes
-effect for a session started *after* this runs (a `usermod` change is
-read at PAM login, not by processes already running) — the udev rule
-takes effect immediately via `udevadm trigger`.
+Both changes happen through a single `pkexec` call into priv_helper.py, so
+this costs one authentication prompt, not one per step. priv_helper.py
+reads the invoking username from PKEXEC_UID itself (not a caller argument)
+and only ever touches fixed, absolute-path binaries — see its docstring.
+Group membership only takes effect for a session started *after* this
+runs (a `usermod` change is read at PAM login, not by processes already
+running) — the udev rule takes effect immediately via `udevadm trigger`.
 
 Prints a single JSON line: {"ok": true} or {"ok": false, "error": "..."}.
 """
-import getpass
 import json
 import os
-import re
 import subprocess
 import sys
 
-UDEV_RULE_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "udev", "70-omakeys-via.rules")
-UDEV_RULE_DEST = "/etc/udev/rules.d/70-omakeys-via.rules"
-
-# POSIX username rules; this also flows into a shell -c pkexec argument, so
-# it's re-validated here rather than trusted from the environment.
-USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+PKEXEC = "/usr/bin/pkexec"
+PYTHON3 = "/usr/bin/python3"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PRIV_HELPER_PATH = os.path.join(SCRIPT_DIR, "priv_helper.py")
+UDEV_RULE_SRC = os.path.join(SCRIPT_DIR, "..", "udev", "70-omakeys-via.rules")
 
 
 def fail(message):
@@ -37,28 +36,12 @@ def fail(message):
 
 
 def main():
-    user = getpass.getuser()
-    if not USERNAME_RE.match(user):
-        fail(f"unsafe username: {user!r}")
-
     rule_src = os.path.abspath(UDEV_RULE_SRC)
     if not os.path.isfile(rule_src):
         fail(f"udev rule missing from plugin install: {rule_src}")
 
     result = subprocess.run(
-        [
-            "pkexec",
-            "bash",
-            "-c",
-            'usermod -aG keyd,input "$1" '
-            '&& install -Dm644 "$2" "$3" '
-            "&& udevadm control --reload-rules "
-            "&& udevadm trigger",
-            "--",
-            user,
-            rule_src,
-            UDEV_RULE_DEST,
-        ],
+        [PKEXEC, PYTHON3, PRIV_HELPER_PATH, "grant-access", rule_src],
         capture_output=True,
         text=True,
         timeout=60,
@@ -68,7 +51,9 @@ def main():
         detail = (result.stderr or result.stdout or "").strip()
         fail(detail or f"pkexec exited {result.returncode}")
 
-    print(json.dumps({"ok": True}))
+    if not result.stdout.strip():
+        fail("priv_helper produced no output")
+    sys.stdout.write(result.stdout)
 
 
 if __name__ == "__main__":
