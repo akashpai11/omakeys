@@ -9,7 +9,7 @@ Usage: apply_profile.py <device-key> <base64-json-profile>
 
 Two writes happen:
 1. The profile itself, saved as plain JSON under the user's own config dir
-   (~/.config/omarchy/keyboard-heatmap/profiles/) — no privilege needed,
+   (~/.config/omarchy/omakeys/profiles/) — no privilege needed,
    this is just app state for the panel to reload next time it opens.
 2. The generated keyd config, which must land in /etc/keyd/ (root-owned).
    That happens through a single `pkexec` call that writes the file and
@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-CONFIG_HOME = os.path.expanduser("~/.config/omarchy/keyboard-heatmap")
+CONFIG_HOME = os.path.expanduser("~/.config/omarchy/omakeys")
 PROFILES_DIR = os.path.join(CONFIG_HOME, "profiles")
 STAGING_DIR = os.path.join(CONFIG_HOME, "staging")
 

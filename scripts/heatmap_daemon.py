@@ -14,7 +14,7 @@ Privacy, by construction (see README):
   counting silently continues through password fields in unlocked apps.
   Documented so nobody assumes otherwise.
 
-Storage: SQLite at ~/.config/omarchy/keyboard-heatmap/heatmap.db, one row
+Storage: SQLite at ~/.config/omarchy/omakeys/heatmap.db, one row
 per (date, device-phys, keycode), incremented in place — never event-level
 data, only running totals.
 """
@@ -36,7 +36,7 @@ RESCAN_INTERVAL_S = 5
 LOCK_POLL_INTERVAL_S = 2
 FLUSH_INTERVAL_S = 5
 
-CONFIG_HOME = os.path.expanduser("~/.config/omarchy/keyboard-heatmap")
+CONFIG_HOME = os.path.expanduser("~/.config/omarchy/omakeys")
 DB_PATH = os.path.join(CONFIG_HOME, "heatmap.db")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 

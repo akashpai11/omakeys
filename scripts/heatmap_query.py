@@ -19,7 +19,7 @@ import sqlite3
 import sys
 import time
 
-DB_PATH = os.path.expanduser("~/.config/omarchy/keyboard-heatmap/heatmap.db")
+DB_PATH = os.path.expanduser("~/.config/omarchy/omakeys/heatmap.db")
 
 
 def main():

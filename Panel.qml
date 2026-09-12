@@ -17,13 +17,15 @@ Panel {
   readonly property color foreground: Color.popups.text
   readonly property color muted: Qt.alpha(foreground, 0.68)
 
-  readonly property string profileDir: Quickshell.env("HOME") + "/.config/omarchy/keyboard-heatmap/profiles"
+  readonly property string profileDir: Quickshell.env("HOME") + "/.config/omarchy/omakeys/profiles"
   readonly property string applyHelperPath: decodeURIComponent(
     Qt.resolvedUrl("scripts/apply_profile.py").toString().replace(/^file:\/\//, ""))
   readonly property string viaHelperPath: decodeURIComponent(
     Qt.resolvedUrl("scripts/probe_via.py").toString().replace(/^file:\/\//, ""))
   readonly property string heatmapQueryHelperPath: decodeURIComponent(
     Qt.resolvedUrl("scripts/heatmap_query.py").toString().replace(/^file:\/\//, ""))
+  readonly property string setupHelperPath: decodeURIComponent(
+    Qt.resolvedUrl("scripts/setup_permissions.py").toString().replace(/^file:\/\//, ""))
 
   property string tab: "remap"
   property var heatmapData: ({ total: 0, byKey: {} })
@@ -74,10 +76,10 @@ Panel {
     probeVia(device)
   }
 
-  function probeVia(device) {
+  function probeVia(device, force) {
     if (!device || !device.hidraw) return
     var cached = viaCache[device.phys]
-    if (cached && cached.status !== "error") return
+    if (!force && cached && cached.status !== "error") return
     var next = Object.assign({}, viaCache)
     next[device.phys] = { status: "checking" }
     viaCache = next
@@ -103,6 +105,46 @@ Panel {
       var next = Object.assign({}, root.viaCache)
       next[viaProc.targetPhys] = result
       root.viaCache = next
+    }
+  }
+
+  // True when this account is missing the one-time access the plugin needs:
+  // the keyd/input groups (heatmap) and the VIA udev rule (raw-HID probe).
+  // Surfaced as a single "Grant access" action rather than two, since both
+  // are granted by the same pkexec call.
+  readonly property bool needsPermissionSetup:
+    (service && service.heatmapPermissionIssue && !service.heatmapWatchingAnyDevice)
+    || (!!viaResult && viaResult.status === "not-detected"
+        && !!viaResult.error && viaResult.error.indexOf("Permission denied") !== -1)
+
+  property bool settingUp: false
+  property string setupStatus: ""
+
+  function runSetup() {
+    if (settingUp) return
+    settingUp = true
+    setupStatus = ""
+    setupProc.command = ["python3", setupHelperPath]
+    setupProc.running = true
+  }
+
+  Process {
+    id: setupProc
+    stdout: StdioCollector { id: setupOut; waitForEnd: true }
+    stderr: StdioCollector { id: setupErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.settingUp = false
+      try {
+        var res = JSON.parse(setupOut.text)
+        root.setupStatus = res.ok
+          ? "Udev rule installed. Log out and back in to finish (group membership needs a fresh session)."
+          : ("Failed: " + res.error)
+      } catch (exception) {
+        root.setupStatus = "Failed: " + (setupErr.text.trim() || String(exception))
+      }
+      // The udev rule takes effect immediately; re-probe so a true positive
+      // shows up without waiting for the relogin the group grant still needs.
+      if (root.selectedDevice) root.probeVia(root.selectedDevice, true)
     }
   }
 
@@ -223,6 +265,31 @@ Panel {
           : root.snapshot.keyd.active
             ? "keyd running — remaps apply live."
             : "keyd installed but not running."
+      }
+
+      RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(8)
+        visible: root.needsPermissionSetup || root.setupStatus !== ""
+
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          wrapMode: Text.Wrap
+          color: root.setupStatus.indexOf("Failed") === 0 ? Color.urgent : root.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          text: root.setupStatus || "VIA detection and the heatmap need one-time access to this account."
+        }
+        Button {
+          text: root.settingUp ? "Setting up…" : "Grant access"
+          tooltipText: "One pkexec prompt: adds this account to the keyd/input groups and installs the VIA udev rule"
+          foreground: root.foreground
+          focusable: true
+          bordered: true
+          enabled: !root.settingUp
+          onClicked: root.runSetup()
+        }
       }
 
       PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }

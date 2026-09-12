@@ -1,67 +1,83 @@
 # Omakeys
 
-Per-device keyboard customizer for Omarchy Quattro: universal remapping via
-[keyd](https://github.com/rvaiya/keyd), VIA/QMK extras when a compatible
-board is detected, and a keypress heatmap. Zero hardcoded colors — every
-surface is pulled live from the shell's `Color`/`Style` singletons, so it
-reskins instantly with the rest of Omarchy and holds up in both light and
-dark themes.
+A per-device keyboard customizer for [Omarchy](https://omarchy.org) Quattro:
+universal remapping via [keyd](https://github.com/rvaiya/keyd), VIA/QMK
+detection when your board supports it, and a keypress heatmap — all themed
+to match your shell, because it reads colors from Omarchy's own `Color`/
+`Style` singletons instead of hardcoding any.
 
-## Status
+<p align="center">
+  <img src="screenshots/remap.png" width="46%" alt="Remap tab: click a key, pick a target, apply to keyd" />
+  &nbsp;&nbsp;
+  <img src="screenshots/heatmap.png" width="46%" alt="Heatmap tab: theme-accent gradient over real usage" />
+</p>
 
-- [x] Device auto-detect via udev, themed bar chip, panel listing every
-      detected keyboard and whether `keyd` is installed/running.
-- [x] Visual remap grid (generic 60% layout, Mac/Windows bottom-row toggle)
-      writing to `keyd` — click a key, pick a target, apply with one
-      `pkexec` authentication prompt.
-- [x] VIA/QMK raw-HID detection (needs a one-time udev rule, installed via
-      `pkexec`). Verified to correctly report "not detected" over
-      Bluetooth; **not yet verified against a true positive** — needs
-      testing over USB.
-- [x] Polling-rate + connection-mode readout (USB `bInterval` sysfs walk;
-      correctly reports "n/a" over Bluetooth). USB path unverified against
-      real wired hardware so far.
-- [x] Keypress heatmap: a long-running counting daemon (needs the `input`
-      group — see Setup below), SQLite storage, a themed heatmap tab reusing
-      the same key grid with a theme-accent gradient fill.
-- [ ] RGB/macro control, suggestion engine, per-app layer switching,
-      RGB-reactive heatmap.
+## Features
 
-## Setup
+- **Universal remapping** — click any key on a live keyboard grid, pick a
+  target from a searchable list of every key `keyd` knows, apply with one
+  authentication prompt. Works on any keyboard, not just VIA/QMK boards.
+- **Per-device detection** — auto-discovers every connected keyboard via
+  udev, shows connection type (USB/Bluetooth/built-in) and polling rate
+  where the kernel exposes it.
+- **VIA/QMK aware** — detects boards that speak the VIA raw-HID protocol,
+  for when you want to reach for VIA/Vial directly instead.
+- **Keypress heatmap** — a lightweight background counter turns your actual
+  typing into a themed heatmap on the same key grid, aggregate counts only.
+- **Zero hardcoded colors** — every surface comes from the shell's own
+  theme tokens, so it reskins instantly with the rest of Omarchy in both
+  light and dark themes.
 
-Two one-time privileged steps, each a single `pkexec` prompt from inside
-the panel (or run manually — see below):
+## Requirements
 
-1. **keyd** must be installed for remapping to work:
-   `sudo pacman -S keyd` (needs a real terminal — `sudo` won't prompt
-   through automation). The plugin handles enabling the service and
-   writing configs itself.
-2. Raw HID (VIA detection) and raw keypress counting (heatmap) need your
-   user in two groups: `keyd` and `input`. The plugin adds you to both via
-   `pkexec usermod -aG ...` the first time it needs them, but **group
-   membership only takes effect after you log out and back in** — this is
-   a Linux session thing, not a plugin bug. Until then, remapping still
-   works (`keyd` config writes go through their own `pkexec` call each
-   time), while VIA detection and the heatmap silently wait and say so in
-   the UI.
+- [Omarchy](https://omarchy.org) Quattro (the Quickshell-based shell).
+- [`keyd`](https://github.com/rvaiya/keyd) for remapping:
+  `sudo pacman -S keyd` (a real terminal — `sudo` needs a TTY).
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/akashpai11/omakeys.git --enable
+```
+
+## One-time setup
+
+Two things need a privileged step the first time, both handled from inside
+the panel:
+
+1. **Remapping** just works once `keyd` is installed — the plugin enables
+   the service and writes its config itself, one `pkexec` prompt per apply.
+2. **VIA detection and the heatmap** need this account in the `keyd`/`input`
+   groups and a udev rule for raw-HID access. The panel shows a **Grant
+   access** button the moment it notices either is missing — one `pkexec`
+   prompt does both. The udev rule takes effect immediately; group
+   membership needs a logout/login first (a Linux session thing, not a bug
+   — you'll see a note in the panel until then).
 
 ## Privacy
 
 The heatmap counts keycodes only — never sequences, never timestamps
-precise enough to reconstruct typing — and drops everything while the
-session is locked. It's necessarily global (all keyboards combined) and
-counts the *post-remap* key: once `keyd` is running it merges every
-physical keyboard into one virtual output device, so per-device and
-pre-remap attribution isn't recoverable downstream of it. Not solved (and
-not really solvable at this layer): true per-application password-field
-exclusion — that needs toolkit-level integration this plugin doesn't have.
+precise enough to reconstruct typing — and stops while the session is
+locked. It's necessarily global across every keyboard and counts the
+*post-remap* key: once `keyd` is running it merges every physical keyboard
+into one virtual output device, so per-device and pre-remap attribution
+isn't recoverable downstream of it.
+
+## Known limitations
+
+- VIA detection is verified to correctly report "not detected" over
+  Bluetooth on real hardware; a true positive (a VIA board actually
+  detected) hasn't been verified yet — most boards only expose the VIA
+  raw-HID interface over USB, not Bluetooth.
+- Polling-rate readout is implemented via the USB `bInterval` sysfs walk
+  but unverified against real wired hardware so far.
+- No RGB/macro control, suggestion engine, or per-app layer switching yet.
 
 ## Dev loop
 
-This repo lives directly under `~/.config/omarchy/plugins/omakeys/` — it
-has to be a real directory there, not a symlink, or the shell's recursive
-`inotifywait` watcher won't see edits inside it. (A convenience symlink
-*from* somewhere else *to* this real location is fine.)
+This repo has to live directly under `~/.config/omarchy/plugins/omakeys/`
+(a real directory, not a symlink) — the shell's recursive `inotifywait`
+watcher won't see edits inside a symlinked plugin folder.
 
 ```bash
 omarchy plugin validate ~/.config/omarchy/plugins/omakeys
@@ -72,25 +88,12 @@ Most QML/script edits hot-reload live. Changes to `PanelWindow`-level
 geometry (contentWidth/contentHeight) don't reliably apply via hot-reload —
 run `omarchy restart shell` after those before judging the result.
 
-Useful IPC calls against the running shell:
-
 ```bash
 omarchy-shell omakeys toggle   # open/close the panel
-omarchy-shell omakeys open
-omarchy-shell omakeys close
-```
-
-Test scripts standalone (no shell needed):
-
-```bash
 python3 scripts/detect_devices.py | python3 -m json.tool
 python3 scripts/heatmap_query.py 1 | python3 -m json.tool
 ```
 
-## Publishing
+## License
 
-Push this directory to a public repo, then anyone installs with:
-
-```bash
-omarchy plugin add https://github.com/<you>/omakeys.git --enable
-```
+MIT — see [LICENSE](LICENSE).
