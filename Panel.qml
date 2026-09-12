@@ -160,10 +160,13 @@ Panel {
       if (root.selectedDevice) root.probeVia(root.selectedDevice, true)
     }
   }
-  // Bounds the outer process, not just the pkexec call inside it (that one
-  // already caps itself at 60s) — headroom for interpreter/process startup
-  // plus the time a user takes to answer the polkit prompt.
-  Timer { id: setupWatchdog; interval: 70000; onTriggered: if (setupProc.running) setupProc.running = false }
+  // Bounds the outer process, not just the pkexec calls inside it. The
+  // first run after install/update costs *two* sequential pkexec calls
+  // (install the protected helper copy, 60s cap, then the actual grant-
+  // access run, another 60s cap) — every run after that is just the one.
+  // Sized for the worst case plus headroom for interpreter startup and
+  // the time a user takes to answer each polkit prompt.
+  Timer { id: setupWatchdog; interval: 130000; onTriggered: if (setupProc.running) setupProc.running = false }
 
   onOpenedChanged: if (opened) {
     if (service) service.refresh()
@@ -205,9 +208,10 @@ Panel {
       }
     }
   }
-  // Same reasoning as setupWatchdog above: apply_profile.py's own pkexec
-  // call caps at 120s, so this outer bound gives it room to actually finish.
-  Timer { id: applyWatchdog; interval: 130000; onTriggered: if (applyProc.running) applyProc.running = false }
+  // Same reasoning as setupWatchdog above: the first run after
+  // install/update costs an extra 60s-capped install step before the
+  // 120s-capped apply-keyd call itself.
+  Timer { id: applyWatchdog; interval: 190000; onTriggered: if (applyProc.running) applyProc.running = false }
 
   FileView {
     id: profileFile
@@ -306,7 +310,7 @@ Panel {
         }
         Button {
           text: root.settingUp ? "Setting up…" : "Grant access"
-          tooltipText: "One pkexec prompt: adds this account to the keyd/input groups and installs the VIA udev rule"
+          tooltipText: "Adds this account to the keyd/input groups and installs the VIA udev rule — one pkexec prompt (a second the first time, or right after an update, to install a protected copy of the privileged helper)"
           foreground: root.foreground
           focusable: true
           bordered: true
@@ -475,7 +479,7 @@ Panel {
 
             Button {
               text: root.applying ? "Applying…" : "Apply to keyd"
-              tooltipText: "Writes /etc/keyd/" + root.deviceKey.replace(":", "_") + ".conf via a one-time authentication prompt"
+              tooltipText: "Writes /etc/keyd/" + root.deviceKey.replace(":", "_") + ".conf — one pkexec prompt (a second the first time, or right after an update, to install a protected copy of the privileged helper)"
               foreground: root.foreground
               focusable: true
               bordered: true

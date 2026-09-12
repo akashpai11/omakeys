@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """The only code in this plugin that ever runs as root.
 
-Production callers (priv_invoke.py) never invoke this file by path under
-pkexec — they read its source themselves and pipe those exact bytes to
-`pkexec /usr/bin/python3 -I -`, so root executes precisely what the
-unprivileged caller just read, not a second, separately-opened copy of
-this file. That matters because this file lives inside the plugin's own
-checkout, which the invoking user can freely write to: if root re-opened
-it by path *after* the pkexec authentication prompt, the window between
-"user clicks the button" and "user finishes typing their password" would
-let the same user swap this file's content for anything and get it run
-as root. Piping the already-read bytes closes that window entirely —
-there is no second read of a mutable path for root to be tricked by.
-(This file can still be run directly by path for local testing —
-`python3 priv_helper.py apply-keyd ...` — that path just isn't part of
-the trust boundary in production.)
+This file itself lives inside the plugin's own checkout, which the
+invoking user can write to — so pkexec must never be pointed at *this*
+path directly in production. Piping these bytes over stdin only closes
+the *timing* window (the file could still have been corrupted at any
+earlier, non-racing moment, with nothing left to detect it); the actual
+fix is that priv_invoke.py installs a copy of this file to a location the
+invoking user cannot write to at all (root-owned, root:root 0644, under
+/usr/local/lib/omakeys/), using a tiny fixed bootstrap that hash-verifies
+the staged content before installing it — see priv_invoke.py's docstring
+for the full mechanism. Every actual privileged operation then points
+pkexec at that fixed, install-owned path, which the checkout's mutability
+has no bearing on at all. (This file can still be run directly by path
+for local testing — `python3 priv_helper.py apply-keyd ...` — that's just
+not part of the trust boundary in production.)
 
 Three more things a naive "pkexec bash -c 'install ...'" one-liner gets
 wrong, all closed here:
@@ -141,7 +141,14 @@ def run_fixed(argv):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.communicate()
+        # Bounded even on the cleanup path — a communicate() with no
+        # timeout here would silently reintroduce the exact unboundedness
+        # this whole function exists to prevent, in precisely the case
+        # (a wedged descendant) where it matters most.
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
         fail(f"{argv[0]} timed out after {SUBPROCESS_TIMEOUT_S}s")
 
     if proc.returncode != 0:

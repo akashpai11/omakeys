@@ -15,7 +15,7 @@ to match your shell, because it reads colors from Omarchy's own `Color`/
 ## Features
 
 - **Universal remapping** — click any key on a live keyboard grid, pick a
-  target from a searchable list of every key `keyd` knows, apply with one
+  target from a searchable list of every key `keyd` knows, apply with an
   authentication prompt. Works on any keyboard, not just VIA/QMK boards.
 - **Per-device detection** — auto-discovers every connected keyboard via
   udev, shows connection type (USB/Bluetooth/built-in) and polling rate
@@ -58,22 +58,33 @@ state outside the plugin's own directory, not plugin data:
   out and back in).
 - The udev rule at `/etc/udev/rules.d/70-omakeys-via.rules`
   (`sudo rm /etc/udev/rules.d/70-omakeys-via.rules && sudo udevadm control --reload-rules`).
+- The privileged helper installed to `/usr/local/lib/omakeys/` (see
+  *One-time setup* below) — `sudo rm -rf /usr/local/lib/omakeys`.
 - Its own data at `~/.config/omarchy/omakeys/` (remap profiles, heatmap
   database) — `rm -rf ~/.config/omarchy/omakeys` if you want it gone too.
 
 ## One-time setup
 
-Two things need a privileged step the first time, both handled from inside
-the panel:
+Two things need a privileged step, both handled from inside the panel:
 
 1. **Remapping** just works once `keyd` is installed — the plugin enables
-   the service and writes its config itself, one `pkexec` prompt per apply.
+   the service and writes its config itself, with an authentication
+   prompt per apply.
 2. **VIA detection and the heatmap** need this account in the `keyd`/`input`
    groups and a udev rule for raw-HID access. The panel shows a **Grant
-   access** button the moment it notices either is missing — one `pkexec`
-   prompt does both. The udev rule takes effect immediately; group
-   membership needs a logout/login first (a Linux session thing, not a bug
-   — you'll see a note in the panel until then).
+   access** button the moment it notices either is missing. The udev rule
+   takes effect immediately; group membership needs a logout/login first
+   (a Linux session thing, not a bug — you'll see a note in the panel
+   until then).
+
+Both privileged actions run through a small helper that gets installed to
+`/usr/local/lib/omakeys/` the first time it's needed (and again after any
+plugin update changes it) — root-owned, not writable by your account, so
+nothing about the plugin's own checkout can affect it once installed.
+That install step is its own authentication prompt, so the *first* time
+you use either action (or the first time after an update) you'll see two
+prompts back to back; every time after that, just the one for the action
+itself.
 
 ## Privacy
 
