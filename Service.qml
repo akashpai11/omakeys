@@ -40,7 +40,9 @@ Item {
 
   Process {
     id: collector
-    command: ["/usr/bin/python3", root.helperPath]
+    command: ["/usr/bin/python3", "-I", root.helperPath]
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stdout: StdioCollector { id: output; waitForEnd: true }
     stderr: StdioCollector { id: errors; waitForEnd: true }
     onRunningChanged: if (running) collectorWatchdog.restart(); else collectorWatchdog.stop()
@@ -77,7 +79,9 @@ Item {
   // device are handled internally without exiting).
   Process {
     id: heatmapDaemon
-    command: ["/usr/bin/python3", root.heatmapDaemonPath]
+    command: ["/usr/bin/python3", "-I", root.heatmapDaemonPath]
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stderr: SplitParser {
       onRead: function(line) {
         if (line.indexOf("watching ") === 0 || line.indexOf("] watching ") !== -1) root.heatmapWatchingAnyDevice = true

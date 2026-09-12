@@ -32,12 +32,14 @@ Panel {
   property int heatmapRangeDays: 1
 
   function refreshHeatmap() {
-    heatmapProc.command = ["/usr/bin/python3", heatmapQueryHelperPath, String(heatmapRangeDays)]
+    heatmapProc.command = ["/usr/bin/python3", "-I", heatmapQueryHelperPath, String(heatmapRangeDays)]
     heatmapProc.running = true
   }
 
   Process {
     id: heatmapProc
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stdout: StdioCollector { id: heatmapOut; waitForEnd: true }
     onRunningChanged: if (running) heatmapWatchdog.restart(); else heatmapWatchdog.stop()
     onExited: function(exitCode) {
@@ -86,13 +88,15 @@ Panel {
     next[device.phys] = { status: "checking" }
     viaCache = next
     viaProc.targetPhys = device.phys
-    viaProc.command = ["/usr/bin/python3", viaHelperPath, device.hidraw]
+    viaProc.command = ["/usr/bin/python3", "-I", viaHelperPath, device.hidraw]
     viaProc.running = true
   }
 
   Process {
     id: viaProc
     property string targetPhys: ""
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stdout: StdioCollector { id: viaOut; waitForEnd: true }
     onRunningChanged: if (running) viaWatchdog.restart(); else viaWatchdog.stop()
     onExited: function(exitCode) {
@@ -130,12 +134,14 @@ Panel {
     if (settingUp) return
     settingUp = true
     setupStatus = ""
-    setupProc.command = ["/usr/bin/python3", setupHelperPath]
+    setupProc.command = ["/usr/bin/python3", "-I", setupHelperPath]
     setupProc.running = true
   }
 
   Process {
     id: setupProc
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stdout: StdioCollector { id: setupOut; waitForEnd: true }
     stderr: StdioCollector { id: setupErr; waitForEnd: true }
     onRunningChanged: if (running) setupWatchdog.restart(); else setupWatchdog.stop()
@@ -178,12 +184,14 @@ Panel {
     if (!deviceKey || applying) return
     applying = true
     applyStatus = ""
-    applyProc.command = ["/usr/bin/python3", applyHelperPath, deviceKey, Qt.btoa(JSON.stringify(profile))]
+    applyProc.command = ["/usr/bin/python3", "-I", applyHelperPath, deviceKey, Qt.btoa(JSON.stringify(profile))]
     applyProc.running = true
   }
 
   Process {
     id: applyProc
+    clearEnvironment: true
+    environment: ({ "PATH": "/usr/bin" })
     stdout: StdioCollector { id: applyOut; waitForEnd: true }
     stderr: StdioCollector { id: applyErr; waitForEnd: true }
     onRunningChanged: if (running) applyWatchdog.restart(); else applyWatchdog.stop()

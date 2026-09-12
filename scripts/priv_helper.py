@@ -1,28 +1,48 @@
 #!/usr/bin/env python3
-"""The only code in this plugin that ever runs as root, via a direct
-`pkexec /usr/bin/python3 priv_helper.py <mode> ...` invocation (never
-`pkexec bash -c '...'`, and never any binary resolved through PATH — every
-executable below is called by absolute path).
+"""The only code in this plugin that ever runs as root.
 
-Two things a naive "pkexec bash -c 'install ...'" one-liner gets wrong,
-both closed here:
+Production callers (priv_invoke.py) never invoke this file by path under
+pkexec — they read its source themselves and pipe those exact bytes to
+`pkexec /usr/bin/python3 -I -`, so root executes precisely what the
+unprivileged caller just read, not a second, separately-opened copy of
+this file. That matters because this file lives inside the plugin's own
+checkout, which the invoking user can freely write to: if root re-opened
+it by path *after* the pkexec authentication prompt, the window between
+"user clicks the button" and "user finishes typing their password" would
+let the same user swap this file's content for anything and get it run
+as root. Piping the already-read bytes closes that window entirely —
+there is no second read of a mutable path for root to be tricked by.
+(This file can still be run directly by path for local testing —
+`python3 priv_helper.py apply-keyd ...` — that path just isn't part of
+the trust boundary in production.)
+
+Three more things a naive "pkexec bash -c 'install ...'" one-liner gets
+wrong, all closed here:
 
 1. Binary resolution. A privileged process that resolves `bash`, `install`,
    `keyd`, `usermod`, `udevadm` through PATH trusts whatever PATH the
    polkit-elevated environment happens to hand it. Every path below is a
-   fixed absolute constant instead.
+   fixed absolute constant instead, and priv_invoke.py runs this script
+   with a minimal, explicit environment rather than inheriting the
+   caller's.
 
-2. TOCTOU on the files it reads/writes. Validating a path as the
-   unprivileged caller and then having a *separate* root process open that
-   same path by name leaves a window where the path can be swapped (e.g.
-   replaced with a symlink) between the two steps — root would then read
-   or write through whatever the symlink now points at. Closed by opening
-   every source with O_NOFOLLOW and checking it's a regular file owned by
-   the account pkexec itself vouches for (`PKEXEC_UID`, not a caller
-   argument), and opening every destination with O_NOFOLLOW too, so a
-   pre-planted symlink at a destination path is refused rather than
-   followed. The file is read from the already-open descriptor, so nothing
-   about its identity can change again after the check.
+2. TOCTOU on the *data* files it reads/writes (the keyd config, the udev
+   rule). Validating a path as the unprivileged caller and then having a
+   *separate* root process open that same path by name leaves a window
+   where the path can be swapped (e.g. replaced with a symlink) between
+   the two steps — root would then read or write through whatever the
+   symlink now points at. Closed by opening every source with O_NOFOLLOW
+   and checking it's a regular file owned by the account pkexec itself
+   vouches for (`PKEXEC_UID`, not a caller argument), and opening every
+   destination with O_NOFOLLOW too, so a pre-planted symlink at a
+   destination path is refused rather than followed. The file is read
+   from the already-open descriptor, so nothing about its identity can
+   change again after the check.
+
+3. Runaway descendants. The fixed commands this script runs (`keyd`,
+   `usermod`, `udevadm`) run in their own process group; a timeout kills
+   the whole group, not just the immediate pid, so a hung descendant
+   can't outlive the command that spawned it.
 
 Prints a single JSON line: {"ok": true} or {"ok": false, "error": "..."}.
 Always exits 0 — callers read the JSON to learn success/failure, the same
@@ -32,6 +52,7 @@ import json
 import os
 import pwd
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -101,12 +122,31 @@ def write_verified_dest(path, data, mode):
 
 
 def run_fixed(argv):
-    result = subprocess.run(
-        argv, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_S
+    # start_new_session=True makes this child its own process-group leader,
+    # so a timeout can kill the whole group — including any descendant the
+    # command itself spawned — rather than just its immediate pid. Both
+    # sides of that kill are root here, so there's no permission boundary
+    # in the way (unlike trying to kill an already-elevated pkexec target
+    # from the original unprivileged caller, which the kernel refuses).
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
     )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        fail(detail or f"{argv[0]} exited {result.returncode}")
+    try:
+        out, err = proc.communicate(timeout=SUBPROCESS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        fail(f"{argv[0]} timed out after {SUBPROCESS_TIMEOUT_S}s")
+
+    if proc.returncode != 0:
+        detail = (err.decode(errors="replace") or out.decode(errors="replace")).strip()
+        fail(detail or f"{argv[0]} exited {proc.returncode}")
 
 
 def cmd_apply_keyd(args):
