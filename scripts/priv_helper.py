@@ -3,46 +3,53 @@
 
 This file itself lives inside the plugin's own checkout, which the
 invoking user can write to — so pkexec must never be pointed at *this*
-path directly in production. Piping these bytes over stdin only closes
-the *timing* window (the file could still have been corrupted at any
-earlier, non-racing moment, with nothing left to detect it); the actual
-fix is that priv_invoke.py installs a copy of this file to a location the
-invoking user cannot write to at all (root-owned, root:root 0644, under
-/usr/local/lib/omakeys/), using a tiny fixed bootstrap that hash-verifies
-the staged content before installing it — see priv_invoke.py's docstring
-for the full mechanism. Every actual privileged operation then points
-pkexec at that fixed, install-owned path, which the checkout's mutability
-has no bearing on at all. (This file can still be run directly by path
-for local testing — `python3 priv_helper.py apply-keyd ...` — that's just
-not part of the trust boundary in production.)
+path directly in production. The actual fix is that priv_invoke.py
+installs a copy of this file to a location the invoking user cannot write
+to at all (root-owned, root:root 0644, under /usr/local/lib/omakeys/),
+using a tiny fixed bootstrap that hash-verifies the staged content before
+installing it — see priv_invoke.py's docstring for the full mechanism.
+Every actual privileged operation then points pkexec at that fixed,
+install-owned path, which the checkout's mutability has no bearing on at
+all. (This file can still be run directly by path for local testing —
+`python3 priv_helper.py apply-keyd ...` — that's just not part of the
+trust boundary in production.)
+
+This only ever writes a keyd config, deliberately. It does not touch
+group membership or udev rules: those need `usermod`/an installed udev
+rule too, but unlike a keyd config (which can only hold keybinding
+pairs — there's no way to make it execute anything), a udev rule can
+carry a RUN+= directive that executes as root on every future matching
+device event, and a group grant changes standing account membership, not
+a one-off value. Every approved marketplace plugin that touches either of
+those (checked before deciding this) documents them as commands the user
+runs themselves rather than automating them — see the README.
 
 Three more things a naive "pkexec bash -c 'install ...'" one-liner gets
 wrong, all closed here:
 
-1. Binary resolution. A privileged process that resolves `bash`, `install`,
-   `keyd`, `usermod`, `udevadm` through PATH trusts whatever PATH the
-   polkit-elevated environment happens to hand it. Every path below is a
-   fixed absolute constant instead, and priv_invoke.py runs this script
-   with a minimal, explicit environment rather than inheriting the
-   caller's.
+1. Binary resolution. A privileged process that resolves `bash`,
+   `install`, `keyd` through PATH trusts whatever PATH the polkit-elevated
+   environment happens to hand it. Every path below is a fixed absolute
+   constant instead, and priv_invoke.py runs this script with a minimal,
+   explicit environment rather than inheriting the caller's.
 
-2. TOCTOU on the *data* files it reads/writes (the keyd config, the udev
-   rule). Validating a path as the unprivileged caller and then having a
-   *separate* root process open that same path by name leaves a window
-   where the path can be swapped (e.g. replaced with a symlink) between
-   the two steps — root would then read or write through whatever the
-   symlink now points at. Closed by opening every source with O_NOFOLLOW
-   and checking it's a regular file owned by the account pkexec itself
-   vouches for (`PKEXEC_UID`, not a caller argument), and opening every
-   destination with O_NOFOLLOW too, so a pre-planted symlink at a
-   destination path is refused rather than followed. The file is read
-   from the already-open descriptor, so nothing about its identity can
-   change again after the check.
+2. TOCTOU on the *data* file it reads/writes (the keyd config). Validating
+   a path as the unprivileged caller and then having a *separate* root
+   process open that same path by name leaves a window where the path can
+   be swapped (e.g. replaced with a symlink) between the two steps — root
+   would then read or write through whatever the symlink now points at.
+   Closed by opening the source with O_NOFOLLOW and checking it's a
+   regular file owned by the account pkexec itself vouches for
+   (`PKEXEC_UID`, not a caller argument), and opening the destination with
+   O_NOFOLLOW too, so a pre-planted symlink at the destination path is
+   refused rather than followed. The file is read from the already-open
+   descriptor, so nothing about its identity can change again after the
+   check.
 
-3. Runaway descendants. The fixed commands this script runs (`keyd`,
-   `usermod`, `udevadm`) run in their own process group; a timeout kills
-   the whole group, not just the immediate pid, so a hung descendant
-   can't outlive the command that spawned it.
+3. Runaway descendants. The fixed command this script runs (`keyd
+   reload`) runs in its own process group; a timeout kills the whole
+   group, not just the immediate pid, so a hung descendant can't outlive
+   the command that spawned it.
 
 Prints a single JSON line: {"ok": true} or {"ok": false, "error": "..."}.
 Always exits 0 — callers read the JSON to learn success/failure, the same
@@ -50,7 +57,6 @@ convention every other helper in this plugin uses.
 """
 import json
 import os
-import pwd
 import re
 import signal
 import stat
@@ -58,12 +64,7 @@ import subprocess
 import sys
 
 KEYD = "/usr/bin/keyd"
-USERMOD = "/usr/bin/usermod"
-UDEVADM = "/usr/bin/udevadm"
-
 KEYD_DEST_DIR = "/etc/keyd"
-UDEV_RULES_DIR = "/etc/udev/rules.d"
-UDEV_RULE_DEST = os.path.join(UDEV_RULES_DIR, "70-omakeys-via.rules")
 
 MAX_SOURCE_BYTES = 64 * 1024
 SUBPROCESS_TIMEOUT_S = 30
@@ -172,32 +173,12 @@ def cmd_apply_keyd(args):
     print(json.dumps({"ok": True}))
 
 
-def cmd_grant_access(args):
-    if len(args) != 1:
-        fail("usage: grant-access <udev_rule_src_path>")
-    (rule_src,) = args
-
-    uid = invoking_uid()
-    data = read_verified_source(rule_src, uid)
-    user = pwd.getpwuid(uid).pw_name
-
-    run_fixed([USERMOD, "-aG", "keyd,input", user])
-    os.makedirs(UDEV_RULES_DIR, exist_ok=True, mode=0o755)
-    os.chmod(UDEV_RULES_DIR, 0o755)  # pin exactly regardless of umask
-    write_verified_dest(UDEV_RULE_DEST, data, 0o644)
-    run_fixed([UDEVADM, "control", "--reload-rules"])
-    run_fixed([UDEVADM, "trigger"])
-    print(json.dumps({"ok": True}))
-
-
 def main():
     if len(sys.argv) < 2:
-        fail("usage: priv_helper.py <apply-keyd|grant-access> ...")
+        fail("usage: priv_helper.py apply-keyd ...")
     mode, rest = sys.argv[1], sys.argv[2:]
     if mode == "apply-keyd":
         cmd_apply_keyd(rest)
-    elif mode == "grant-access":
-        cmd_grant_access(rest)
     else:
         fail(f"unknown mode: {mode!r}")
 

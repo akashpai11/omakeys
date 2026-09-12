@@ -24,8 +24,6 @@ Panel {
     Qt.resolvedUrl("scripts/probe_via.py").toString().replace(/^file:\/\//, ""))
   readonly property string heatmapQueryHelperPath: decodeURIComponent(
     Qt.resolvedUrl("scripts/heatmap_query.py").toString().replace(/^file:\/\//, ""))
-  readonly property string setupHelperPath: decodeURIComponent(
-    Qt.resolvedUrl("scripts/setup_permissions.py").toString().replace(/^file:\/\//, ""))
 
   property string tab: "remap"
   property var heatmapData: ({ total: 0, byKey: {} })
@@ -120,53 +118,23 @@ Panel {
 
   // True when this account is missing the one-time access the plugin needs:
   // the keyd/input groups (heatmap) and the VIA udev rule (raw-HID probe).
-  // Surfaced as a single "Grant access" action rather than two, since both
-  // are granted by the same pkexec call.
+  // Deliberately *not* automated via pkexec — unlike a keyd config write,
+  // a udev rule can carry a RUN+= directive that executes as root on every
+  // future matching device event, and usermod changes standing account
+  // membership, not a one-off value. Every approved marketplace plugin
+  // that touches either (checked before deciding this) documents them as
+  // commands the user runs themselves rather than automating them — see
+  // the README's One-time setup section.
   readonly property bool needsPermissionSetup:
     (service && service.heatmapPermissionIssue && !service.heatmapWatchingAnyDevice)
     || (!!viaResult && viaResult.status === "not-detected"
         && !!viaResult.error && viaResult.error.indexOf("Permission denied") !== -1)
 
-  property bool settingUp: false
-  property string setupStatus: ""
-
-  function runSetup() {
-    if (settingUp) return
-    settingUp = true
-    setupStatus = ""
-    setupProc.command = ["/usr/bin/python3", "-I", setupHelperPath]
-    setupProc.running = true
-  }
-
-  Process {
-    id: setupProc
-    clearEnvironment: true
-    environment: ({ "PATH": "/usr/bin" })
-    stdout: StdioCollector { id: setupOut; waitForEnd: true }
-    stderr: StdioCollector { id: setupErr; waitForEnd: true }
-    onRunningChanged: if (running) setupWatchdog.restart(); else setupWatchdog.stop()
-    onExited: function(exitCode) {
-      root.settingUp = false
-      try {
-        var res = JSON.parse(setupOut.text)
-        root.setupStatus = res.ok
-          ? "Udev rule installed. Log out and back in to finish (group membership needs a fresh session)."
-          : ("Failed: " + res.error)
-      } catch (exception) {
-        root.setupStatus = "Failed: " + (setupErr.text.trim() || String(exception))
-      }
-      // The udev rule takes effect immediately; re-probe so a true positive
-      // shows up without waiting for the relogin the group grant still needs.
-      if (root.selectedDevice) root.probeVia(root.selectedDevice, true)
-    }
-  }
-  // Bounds the outer process, not just the pkexec calls inside it. The
-  // first run after install/update costs *two* sequential pkexec calls
-  // (install the protected helper copy, 60s cap, then the actual grant-
-  // access run, another 60s cap) — every run after that is just the one.
-  // Sized for the worst case plus headroom for interpreter startup and
-  // the time a user takes to answer each polkit prompt.
-  Timer { id: setupWatchdog; interval: 130000; onTriggered: if (setupProc.running) setupProc.running = false }
+  readonly property string udevRulePath: decodeURIComponent(
+    Qt.resolvedUrl("udev/70-omakeys-via.rules").toString().replace(/^file:\/\//, ""))
+  readonly property string manualSetupCommand:
+    "sudo usermod -aG keyd,input $USER && sudo install -Dm644 " + udevRulePath +
+    " /etc/udev/rules.d/70-omakeys-via.rules && sudo udevadm control --reload-rules && sudo udevadm trigger"
 
   onOpenedChanged: if (opened) {
     if (service) service.refresh()
@@ -208,9 +176,11 @@ Panel {
       }
     }
   }
-  // Same reasoning as setupWatchdog above: the first run after
-  // install/update costs an extra 60s-capped install step before the
-  // 120s-capped apply-keyd call itself.
+  // Bounds the outer process, not just the pkexec calls inside it. The
+  // first run after install/update costs an extra 60s-capped install step
+  // (priv_invoke.py installing a root-owned copy of priv_helper.py) before
+  // the 120s-capped apply-keyd call itself; every run after that is just
+  // the one call.
   Timer { id: applyWatchdog; interval: 190000; onTriggered: if (applyProc.running) applyProc.running = false }
 
   FileView {
@@ -294,28 +264,29 @@ Panel {
             : "keyd installed but not running."
       }
 
-      RowLayout {
+      ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space(8)
-        visible: root.needsPermissionSetup || root.setupStatus !== ""
+        spacing: Style.space(4)
+        visible: root.needsPermissionSetup
 
         Text {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.Wrap
-          color: root.setupStatus.indexOf("Failed") === 0 ? Color.urgent : root.muted
+          color: root.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          text: root.setupStatus || "VIA detection and the heatmap need one-time access to this account."
+          text: "VIA detection and the heatmap need one-time access to this account — run in a terminal, then log out and back in:"
         }
-        Button {
-          text: root.settingUp ? "Setting up…" : "Grant access"
-          tooltipText: "Adds this account to the keyd/input groups and installs the VIA udev rule — one pkexec prompt (a second the first time, or right after an update, to install a protected copy of the privileged helper)"
-          foreground: root.foreground
-          focusable: true
-          bordered: true
-          enabled: !root.settingUp
-          onClicked: root.runSetup()
+        TextEdit {
+          Layout.fillWidth: true
+          readOnly: true
+          selectByMouse: true
+          wrapMode: Text.Wrap
+          color: root.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          text: root.manualSetupCommand
         }
       }
 

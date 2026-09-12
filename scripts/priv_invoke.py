@@ -30,10 +30,13 @@ content). The real fix has two parts:
    would produce a digest mismatch and be refused, not just a symlink
    swap. Only once verified does it get installed.
 
-Every actual privileged operation (apply-keyd, grant-access) then points
-pkexec directly at the fixed, installed path — a normal, safe path-based
-invocation, because by this point the path genuinely isn't writable by
-the invoking user any more.
+Every actual privileged operation then points pkexec directly at the
+fixed, installed path — a normal, safe path-based invocation, because by
+this point the path genuinely isn't writable by the invoking user any
+more. (The only mode this plugin uses today is apply-keyd — writing a
+keyd config, which can only ever hold keybinding pairs, nothing
+executable. Group membership and udev rules are handled as documented
+manual commands instead; see priv_helper.py's docstring for why.)
 
 `python3 -I` (isolated: no PYTHONPATH, no user site-packages) with an
 explicit minimal environment is used for every pkexec call here, so

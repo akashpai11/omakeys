@@ -53,7 +53,7 @@ state outside the plugin's own directory, not plugin data:
 - `keyd` itself, and any per-device configs it wrote under `/etc/keyd/`
   (delete manually if you no longer want the remaps, or `sudo pacman -R keyd`
   to remove keyd entirely).
-- The `keyd`/`input` group membership added by **Grant access**
+- The `keyd`/`input` group membership from the manual setup command below
   (`sudo gpasswd -d $USER keyd && sudo gpasswd -d $USER input`, then log
   out and back in).
 - The udev rule at `/etc/udev/rules.d/70-omakeys-via.rules`
@@ -65,26 +65,36 @@ state outside the plugin's own directory, not plugin data:
 
 ## One-time setup
 
-Two things need a privileged step, both handled from inside the panel:
-
 1. **Remapping** just works once `keyd` is installed — the plugin enables
    the service and writes its config itself, with an authentication
-   prompt per apply.
+   prompt per apply. That config write runs through a small helper that
+   gets installed to `/usr/local/lib/omakeys/` the first time it's needed
+   (and again after any plugin update changes it) — root-owned, not
+   writable by your account, so nothing about the plugin's own checkout
+   can affect it once installed. That install step is its own
+   authentication prompt, so the *first* apply (or the first one after an
+   update) costs two prompts back to back; every one after that is just
+   the one.
 2. **VIA detection and the heatmap** need this account in the `keyd`/`input`
-   groups and a udev rule for raw-HID access. The panel shows a **Grant
-   access** button the moment it notices either is missing. The udev rule
-   takes effect immediately; group membership needs a logout/login first
-   (a Linux session thing, not a bug — you'll see a note in the panel
-   until then).
+   groups and a udev rule for raw-HID access. The panel shows the exact
+   command to run the moment it notices either is missing:
 
-Both privileged actions run through a small helper that gets installed to
-`/usr/local/lib/omakeys/` the first time it's needed (and again after any
-plugin update changes it) — root-owned, not writable by your account, so
-nothing about the plugin's own checkout can affect it once installed.
-That install step is its own authentication prompt, so the *first* time
-you use either action (or the first time after an update) you'll see two
-prompts back to back; every time after that, just the one for the action
-itself.
+   ```bash
+   sudo usermod -aG keyd,input $USER && sudo install -Dm644 ~/.config/omarchy/plugins/omakeys/udev/70-omakeys-via.rules /etc/udev/rules.d/70-omakeys-via.rules && sudo udevadm control --reload-rules && sudo udevadm trigger
+   ```
+
+   Then log out and back in (group membership only takes effect for a
+   session started afterward — a Linux thing, not a bug). This one is a
+   command to run yourself rather than an in-app button on purpose: unlike
+   a keyd config, which can only ever hold keybinding pairs, a udev rule
+   can carry a `RUN+=` directive that executes as root on every future
+   matching device event, and a group grant changes standing account
+   membership rather than a one-off value — neither is something this
+   plugin's own code should be trusted to do unsupervised. (Every other
+   marketplace plugin that touches either of these does the same — see
+   e.g. the [Docker](https://github.com/Majkelll/omarchy-docker) or
+   [Cooler Control](https://github.com/eddygarcas/omarchy-cooler-control)
+   plugins' setup docs.)
 
 ## Privacy
 

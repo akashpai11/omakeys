@@ -12,11 +12,10 @@ Two writes happen:
    (~/.config/omarchy/omakeys/profiles/) — no privilege needed,
    this is just app state for the panel to reload next time it opens.
 2. The generated keyd config, which must land in /etc/keyd/ (root-owned).
-   That happens through a single `pkexec` call into priv_helper.py (via
-   priv_invoke.py, which pipes it in rather than pointing pkexec at a
-   path — see that module's docstring), writing the file and triggering
-   `keyd reload` together for one authentication prompt rather than one
-   per step.
+   That happens through priv_invoke.py, which installs a root-owned copy
+   of priv_helper.py the first time it's needed (see that module's
+   docstring for why) and then makes a single `pkexec` call against it —
+   one authentication prompt rather than one per step.
 
 Prints a single JSON line: {"ok": true} or {"ok": false, "error": "..."}.
 """
