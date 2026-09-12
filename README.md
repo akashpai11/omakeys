@@ -81,7 +81,7 @@ watcher won't see edits inside a symlinked plugin folder.
 
 ```bash
 omarchy plugin validate ~/.config/omarchy/plugins/omakeys
-omarchy plugin enable omakeys --section right
+omarchy plugin enable akashpai11.omakeys --section right
 ```
 
 Most QML/script edits hot-reload live. Changes to `PanelWindow`-level
@@ -89,7 +89,7 @@ geometry (contentWidth/contentHeight) don't reliably apply via hot-reload —
 run `omarchy restart shell` after those before judging the result.
 
 ```bash
-omarchy-shell omakeys toggle   # open/close the panel
+omarchy-shell akashpai11.omakeys toggle   # open/close the panel
 python3 scripts/detect_devices.py | python3 -m json.tool
 python3 scripts/heatmap_query.py 1 | python3 -m json.tool
 ```

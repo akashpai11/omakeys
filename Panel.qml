@@ -9,8 +9,8 @@ import "KeydKeys.js" as KeydKeys
 
 Panel {
   id: root
-  moduleName: "omakeys"
-  ipcTarget: "omakeys"
+  moduleName: "akashpai11.omakeys"
+  ipcTarget: "akashpai11.omakeys"
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor(moduleName) : null
   readonly property var snapshot: service ? service.snapshot : ({ keyboards: [], keyd: { installed: false, active: false } })
   readonly property var primary: service ? service.primary : null
