@@ -1,0 +1,9 @@
+# Grants the active local seat user (systemd-logind ACL, not group/world
+# access) read/write on hidraw nodes so VIA/QMK detection and the raw-HID
+# VIA protocol can run without root. Same rule VIA and Vial ship themselves
+# (see https://www.caniusevia.com/docs/linux) — deliberately broad across
+# hidraw rather than scoped to a vendor/usage-page allowlist, since VIA
+# detection is itself the thing that tells us whether a given interface is
+# safe to talk to; the uaccess tag only ever applies to whoever is logged
+# in at the physical seat, not other local users or anything remote.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", TAG+="uaccess"

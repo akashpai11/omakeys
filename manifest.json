@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "omakeys",
+  "name": "Omakeys",
+  "version": "0.1.0",
+  "author": "Akash Pai",
+  "license": "MIT",
+  "description": "Per-device keyboard customizer: universal remapping via keyd, VIA/QMK extras when detected, and a keypress heatmap.",
+  "homepage": "https://github.com/akashpai11/omakeys",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Keyboard",
+    "description": "Shows the active keyboard and opens the customizer.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
