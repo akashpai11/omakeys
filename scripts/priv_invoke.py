@@ -95,10 +95,16 @@ if hashlib.sha256(data).hexdigest() != expected_digest:
     sys.exit("staged helper digest mismatch")
 
 install_dir = os.path.dirname(install_path)
+# mode= on makedirs is filtered through umask at creation time, so it's
+# not a reliable way to guarantee the final bits (a stricter root umask
+# than the usual 022 could leave this non-world-readable, silently
+# breaking the unprivileged read-back check below); chmod afterwards to
+# pin it exactly regardless of umask, same as the file write further down.
 os.makedirs(install_dir, exist_ok=True, mode=0o755)
 dir_st = os.stat(install_dir, follow_symlinks=False)
 if not stat.S_ISDIR(dir_st.st_mode) or dir_st.st_uid != 0:
     sys.exit("install directory is not a root-owned real directory")
+os.chmod(install_dir, 0o755)
 
 tmp_path = install_path + ".new"
 fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
@@ -169,6 +175,7 @@ def _installed_copy_matches(helper_source):
 
 def _install_helper(helper_source):
     os.makedirs(STAGING_DIR, exist_ok=True, mode=0o700)
+    os.chmod(STAGING_DIR, 0o700)  # pin exactly regardless of umask
     staging_path = os.path.join(STAGING_DIR, f"priv_helper.{secrets.token_hex(16)}.py")
     fd = os.open(staging_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
     try:

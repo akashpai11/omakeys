@@ -165,6 +165,7 @@ def cmd_apply_keyd(args):
 
     data = read_verified_source(staging_path, invoking_uid())
     os.makedirs(KEYD_DEST_DIR, exist_ok=True, mode=0o755)
+    os.chmod(KEYD_DEST_DIR, 0o755)  # pin exactly regardless of umask
     dest = os.path.join(KEYD_DEST_DIR, f"{safe_name}.conf")
     write_verified_dest(dest, data, 0o644)
     run_fixed([KEYD, "reload"])
@@ -182,6 +183,7 @@ def cmd_grant_access(args):
 
     run_fixed([USERMOD, "-aG", "keyd,input", user])
     os.makedirs(UDEV_RULES_DIR, exist_ok=True, mode=0o755)
+    os.chmod(UDEV_RULES_DIR, 0o755)  # pin exactly regardless of umask
     write_verified_dest(UDEV_RULE_DEST, data, 0o644)
     run_fixed([UDEVADM, "control", "--reload-rules"])
     run_fixed([UDEVADM, "trigger"])
