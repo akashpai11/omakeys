@@ -40,6 +40,27 @@ to match your shell, because it reads colors from Omarchy's own `Color`/
 omarchy plugin add https://github.com/akashpai11/omakeys.git --enable
 ```
 
+## Removal
+
+```bash
+omarchy plugin remove akashpai11.omakeys
+```
+
+This removes the plugin folder and its bar entry. It does **not** touch
+anything the one-time setup step granted, since those are normal system
+state outside the plugin's own directory, not plugin data:
+
+- `keyd` itself, and any per-device configs it wrote under `/etc/keyd/`
+  (delete manually if you no longer want the remaps, or `sudo pacman -R keyd`
+  to remove keyd entirely).
+- The `keyd`/`input` group membership added by **Grant access**
+  (`sudo gpasswd -d $USER keyd && sudo gpasswd -d $USER input`, then log
+  out and back in).
+- The udev rule at `/etc/udev/rules.d/70-omakeys-via.rules`
+  (`sudo rm /etc/udev/rules.d/70-omakeys-via.rules && sudo udevadm control --reload-rules`).
+- Its own data at `~/.config/omarchy/omakeys/` (remap profiles, heatmap
+  database) — `rm -rf ~/.config/omarchy/omakeys` if you want it gone too.
+
 ## One-time setup
 
 Two things need a privileged step the first time, both handled from inside
